@@ -1,0 +1,15 @@
+{
+  "name": "sonic-game",
+  "version": "1.0.0",
+  "description": "A Sonic the Hedgehog game made with Phaser 3",
+  "main": "index.js",
+  "scripts": {
+    "start": "http-server -c-1"
+  },
+  "dependencies": {
+    "phaser": "^3.70.0"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+} 
