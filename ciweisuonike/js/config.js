@@ -142,4 +142,108 @@ const SCORE = {
     COIN_SCORE: 50,
     // 飞行敌人得分
     FLYING_ENEMY_SCORE: 150
+};
+
+// 能力升级系统
+const POWERUPS = {
+    // 护盾能力
+    SHIELD: {
+        // 持续时间（毫秒）
+        DURATION: 8000,
+        // 颜色
+        COLOR: 0x00ffff,
+        // 生成几率 (0-1)
+        SPAWN_CHANCE: 0.3
+    },
+    // 跳跃提升
+    JUMP_BOOST: {
+        // 跳跃力度提升倍数
+        MULTIPLIER: 1.5,
+        // 持续时间（毫秒）
+        DURATION: 10000,
+        // 颜色
+        COLOR: 0xffff00,
+        // 生成几率 (0-1)
+        SPAWN_CHANCE: 0.3
+    },
+    // 速度提升
+    SPEED_BOOST: {
+        // 速度提升倍数
+        MULTIPLIER: 1.4,
+        // 持续时间（毫秒）
+        DURATION: 12000,
+        // 颜色
+        COLOR: 0xff0000,
+        // 生成几率 (0-1)
+        SPAWN_CHANCE: 0.3
+    },
+    // 磁铁（吸引金币）
+    MAGNET: {
+        // 吸引半径
+        RADIUS: 150,
+        // 持续时间（毫秒）
+        DURATION: 15000,
+        // 颜色
+        COLOR: 0x8800ff,
+        // 生成几率 (0-1)
+        SPAWN_CHANCE: 0.2
+    }
+};
+
+// Boss配置
+const BOSS = {
+    // 基础属性
+    MAX_HEALTH: 500,
+    SIZE: 80,
+    SPAWN_X: WORLD.WIDTH - 400,
+    SPAWN_Y: 300,
+    
+    // 移动参数
+    MOVE_SPEED: 100,
+    JUMP_FORCE: 350,
+    
+    // 攻击参数
+    PHASE_HEALTH: {
+        PHASE1: 500, // 满血
+        PHASE2: 300, // 60%血量
+        PHASE3: 150  // 30%血量
+    },
+    
+    // 攻击类型
+    ATTACKS: {
+        // 跳跃冲击
+        JUMP_SMASH: {
+            DAMAGE: 1,
+            COOLDOWN: 3000,
+            TELEGRAPH_TIME: 800,
+            RADIUS: 150
+        },
+        // 子弹射击
+        BULLET_SPRAY: {
+            DAMAGE: 1,
+            COOLDOWN: 5000,
+            BULLET_COUNT: 12,
+            BULLET_SPEED: 200
+        },
+        // 冲刺攻击
+        DASH_ATTACK: {
+            DAMAGE: 1,
+            COOLDOWN: 4000,
+            SPEED: 400,
+            DURATION: 600
+        },
+        // 召唤小怪（第二阶段）
+        MINION_SUMMON: {
+            COOLDOWN: 8000,
+            COUNT: 2
+        },
+        // 激光扫射（第三阶段）
+        LASER_BEAM: {
+            DAMAGE: 1,
+            COOLDOWN: 10000,
+            DURATION: 2000,
+            WIDTH: 40,
+            TELEGRAPH_TIME: 1000
+        }
+    }
 }; 

@@ -38,6 +38,23 @@ let lastOnGround = 0; // 上次在地面上的时间
 let enemyBullets; // 敌人子弹组
 let flyingEnemies; // 飞行敌人组
 let bulletEvents = []; // 敌人发射子弹的计时器数组
+let powerups; // 能力升级道具组
+let activePowerups = {}; // 激活的能力升级
+let powerupTimers = {}; // 能力升级计时器
+let powerupText; // 显示当前能力升级状态的文本
+
+// Boss相关变量
+let boss; // Boss对象
+let bossHealth; // Boss当前血量
+let bossHealthBar; // Boss血条
+let bossPhase = 1; // Boss当前阶段
+let bossAttackTimers = {}; // Boss攻击计时器
+let bossActive = false; // Boss是否激活
+let isBossFight = false; // 是否正在Boss战
+let bossProjectiles; // Boss发射的投射物
+let bossMinions; // Boss召唤的小怪
+let bossLaser; // Boss的激光攻击
+let bossTrigger; // 触发Boss战的区域
 
 // 冲刺系统变量
 let isDashing = false; // 是否正在冲刺
@@ -77,6 +94,10 @@ function preload() {
     this.load.image('enemy', 'assets/spike.png'); // 使用尖刺图片作为怪物图片
     this.load.image('bullet', 'assets/spike.png'); // 使用尖刺图片作为子弹图片
     this.load.image('flyingEnemy', 'assets/spike.png'); // 使用尖刺图片作为飞行敌人图片
+    this.load.image('powerup', 'assets/coin.png'); // 临时使用金币图片作为能力升级图片
+    this.load.image('boss', 'assets/spike.png'); // 临时使用尖刺图片作为Boss图片
+    this.load.image('bossMinion', 'assets/spike.png'); // Boss小怪
+    this.load.image('bossBullet', 'assets/spike.png'); // Boss子弹
     this.load.spritesheet('sonic', 
         'assets/sonic.png',
         { 
@@ -182,6 +203,28 @@ function create() {
     flyingEnemies = this.physics.add.group({
         allowGravity: false // 飞行敌人不受重力影响
     });
+    
+    // 创建能力升级道具组
+    powerups = this.physics.add.group({
+        allowGravity: false // 能力升级道具不受重力影响
+    });
+    
+    // 创建Boss投射物组
+    bossProjectiles = this.physics.add.group({
+        allowGravity: false // Boss投射物不受重力影响
+    });
+    
+    // 创建Boss小怪组
+    bossMinions = this.physics.add.group();
+    
+    // 在世界末端创建Boss触发区域
+    bossTrigger = this.physics.add.sprite(WORLD.WIDTH - 600, 300, 'bullet');
+    bossTrigger.setAlpha(0); // 隐藏图像
+    bossTrigger.body.setAllowGravity(false);
+    bossTrigger.setImmovable(true);
+    
+    // 创建触发区域碰撞检测
+    this.physics.add.overlap(sonic, bossTrigger, startBossFight, null, this);
     
     // 在平台上随机放置怪物
     platformPositions.forEach(platform => {
@@ -402,6 +445,9 @@ function create() {
     
     // 改用overlap来检测金币收集 - 这样可以穿过金币并收集它
     this.physics.add.overlap(sonic, coins, collectCoin, null, this);
+    
+    // 添加能力升级道具的收集检测
+    this.physics.add.overlap(sonic, powerups, collectPowerup, null, this);
 
     // 初始化键盘控制
     cursors = this.input.keyboard.createCursorKeys();
@@ -422,6 +468,12 @@ function create() {
     healthText = this.add.text(16, 84, '生命: 3', { 
         fontSize: '32px', 
         fill: '#000' 
+    }).setScrollFactor(0);
+
+    // 添加能力升级状态显示
+    powerupText = this.add.text(16, 118, '能力: 无', { 
+        fontSize: '24px', 
+        fill: '#0088ff' 
     }).setScrollFactor(0);
 
     // 添加开始游戏提示 - 固定到摄像机
@@ -528,10 +580,83 @@ function create() {
     updateDashMeter(this, 1); // 初始化为满
     
     // 添加冲刺文本提示
-    this.add.text(16, 118, '冲刺: ', { 
+    this.add.text(16, 150, '冲刺: ', { 
         fontSize: '32px', 
         fill: '#000' 
     }).setScrollFactor(0);
+    
+    // 定时生成能力升级道具
+    this.time.addEvent({
+        delay: 15000, // 每15秒
+        callback: spawnRandomPowerup,
+        callbackScope: this,
+        loop: true
+    });
+    
+    // 初始生成一个能力升级道具
+    this.time.delayedCall(5000, () => {
+        spawnRandomPowerup(this);
+    });
+
+    // 添加与飞行敌人的碰撞
+    this.physics.add.collider(sonic, flyingEnemies, hitFlyingEnemy, null, this);
+    // 添加与敌人子弹的碰撞
+    this.physics.add.collider(sonic, enemyBullets, hitEnemyBullet, null, this);
+    
+    // 添加Boss相关碰撞
+    this.physics.add.collider(sonic, bossProjectiles, hitBossProjectile, null, this);
+    this.physics.add.collider(sonic, bossMinions, hitBossMinion, null, this);
+    
+    // 平台与Boss小怪碰撞
+    this.physics.add.collider(bossMinions, platforms);
+
+    // Boss配置
+    this.BOSS = {
+        MAX_HEALTH: 1000,
+        MOVE_SPEED: 80,
+        DAMAGE: 30,
+        jumpSmash: {
+            damage: 50,
+            cooldown: 5000,
+            chance: 30
+        },
+        bulletSpray: {
+            damage: 20,
+            cooldown: 8000,
+            chance: 40,
+            bulletCount: 8
+        },
+        dashAttack: {
+            damage: 40,
+            cooldown: 6000,
+            chance: 35
+        },
+        minionSummon: {
+            cooldown: 12000,
+            chance: 25,
+            count: 3
+        },
+        laserBeam: {
+            damage: 80,
+            cooldown: 15000,
+            chance: 20
+        }
+    };
+    
+    // Boss状态
+    this.bossActive = false;
+    this.bossHealth = this.BOSS.MAX_HEALTH;
+    this.bossPhase = 1;
+    this.bossState = 'idle';
+    
+    // Boss攻击计时器
+    this.bossAttackTimers = {
+        jumpSmash: 0,
+        bulletSpray: 0,
+        dashAttack: 0,
+        minionSummon: 0,
+        laserBeam: 0
+    };
 }
 
 function update() {
@@ -702,6 +827,11 @@ function update() {
         updateHealthDisplay();
         endGame(this);
     }
+
+    // 如果Boss激活，运行Boss AI
+    if (bossActive && boss && boss.active) {
+        runBossAI(this);
+    }
 }
 
 function collectCoin(player, coin) {
@@ -810,6 +940,34 @@ function handleHit(player, hazard) {
             score += scoreValue * 2; // 冲刺击败得双倍分数
             scoreText.setText('分数: ' + score);
         }
+        return;
+    }
+    
+    // 如果有护盾，则不受伤害
+    if (activePowerups['SHIELD']) {
+        // 显示护盾抵挡效果
+        const shieldEffect = player.scene.add.circle(player.x, player.y, 30, POWERUPS.SHIELD.COLOR, 0.7);
+        player.scene.tweens.add({
+            targets: shieldEffect,
+            scale: 2,
+            alpha: 0,
+            duration: 500,
+            onComplete: () => {
+                shieldEffect.destroy();
+            }
+        });
+        
+        // 如果是敌人，击退它
+        if (hazard.texture.key === 'enemy' || hazard.texture.key === 'flyingEnemy') {
+            const knockbackDirection = player.x < hazard.x ? 1 : -1;
+            hazard.setVelocityX(knockbackDirection * 300);
+        }
+        
+        // 如果是子弹，销毁它
+        if (hazard.texture.key === 'bullet') {
+            hazard.destroy();
+        }
+        
         return;
     }
     
@@ -1260,4 +1418,989 @@ function hitEnemyBullet(player, bullet) {
     
     // 处理玩家受伤
     handleHit(player, bullet);
+}
+
+// 启动Boss战
+function startBossFight(player, trigger) {
+    // 只触发一次
+    if (isBossFight) return;
+    
+    // 设置Boss战标志
+    isBossFight = true;
+    
+    // 销毁触发器
+    trigger.destroy();
+    
+    // 创建闪屏效果
+    const flashScreen = player.scene.add.rectangle(
+        player.scene.cameras.main.worldView.x + player.scene.cameras.main.width / 2,
+        player.scene.cameras.main.worldView.y + player.scene.cameras.main.height / 2,
+        player.scene.cameras.main.width,
+        player.scene.cameras.main.height,
+        0xffffff
+    ).setScrollFactor(0).setDepth(1000);
+    
+    // 闪屏淡出
+    player.scene.tweens.add({
+        targets: flashScreen,
+        alpha: 0,
+        duration: 1000,
+        onComplete: () => {
+            flashScreen.destroy();
+        }
+    });
+    
+    // 显示Boss登场文字
+    const bossText = player.scene.add.text(
+        player.scene.cameras.main.worldView.x + player.scene.cameras.main.width / 2,
+        player.scene.cameras.main.worldView.y + player.scene.cameras.main.height / 2,
+        "Boss战斗开始！",
+        {
+            fontSize: '48px',
+            fontStyle: 'bold',
+            fill: '#ff0000',
+            stroke: '#000000',
+            strokeThickness: 6,
+            shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 2, fill: true, stroke: true }
+        }
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+    
+    // 文字动画
+    player.scene.tweens.add({
+        targets: bossText,
+        scale: 1.2,
+        duration: 500,
+        yoyo: true,
+        repeat: 2,
+        onComplete: () => {
+            bossText.destroy();
+            // 创建Boss
+            createBoss(player.scene);
+        }
+    });
+}
+
+// 创建Boss
+function createBoss(scene) {
+    // 创建Boss
+    boss = scene.physics.add.sprite(BOSS.SPAWN_X, BOSS.SPAWN_Y, 'boss');
+    boss.setDisplaySize(BOSS.SIZE, BOSS.SIZE);
+    boss.setCollideWorldBounds(true);
+    boss.setBounce(0.2);
+    boss.setTint(0xff0000); // 红色Boss
+    
+    // 设置Boss血量
+    bossHealth = BOSS.MAX_HEALTH;
+    bossPhase = 1;
+    
+    // 创建Boss健康条背景
+    const healthBarBg = scene.add.rectangle(
+        BOSS.SPAWN_X,
+        BOSS.SPAWN_Y - BOSS.SIZE/2 - 20,
+        BOSS.MAX_HEALTH / 2,
+        10,
+        0x000000
+    );
+    
+    // 创建Boss健康条
+    bossHealthBar = scene.add.rectangle(
+        BOSS.SPAWN_X - BOSS.MAX_HEALTH / 4,
+        BOSS.SPAWN_Y - BOSS.SIZE/2 - 20,
+        BOSS.MAX_HEALTH / 2,
+        10,
+        0xff0000
+    );
+    bossHealthBar.setOrigin(0, 0.5);
+    
+    // 添加Boss名称
+    const bossName = scene.add.text(
+        BOSS.SPAWN_X,
+        BOSS.SPAWN_Y - BOSS.SIZE/2 - 40,
+        "机械霸王",
+        {
+            fontSize: '24px',
+            fontStyle: 'bold',
+            fill: '#ff0000',
+            stroke: '#000000',
+            strokeThickness: 3
+        }
+    ).setOrigin(0.5);
+    
+    // 将血条和名称跟随Boss
+    scene.time.addEvent({
+        delay: 20,
+        callback: () => {
+            if (!boss || !boss.active) return;
+            
+            healthBarBg.setPosition(boss.x, boss.y - BOSS.SIZE/2 - 20);
+            bossHealthBar.setPosition(boss.x - bossHealthBar.width / 2, boss.y - BOSS.SIZE/2 - 20);
+            bossName.setPosition(boss.x, boss.y - BOSS.SIZE/2 - 40);
+        },
+        loop: true
+    });
+    
+    // 添加与玩家的碰撞
+    scene.physics.add.collider(boss, platforms);
+    scene.physics.add.collider(sonic, boss, hitBoss, null, scene);
+    
+    // 激活Boss
+    bossActive = true;
+    
+    // 开始Boss AI
+    runBossAI(scene);
+}
+
+// 处理与Boss的碰撞
+function hitBoss(player, boss) {
+    // 如果玩家从上方跳到Boss头上
+    if (player.body.touching.down && boss.body.touching.up) {
+        // 减少Boss血量
+        damageBoss(20);
+        
+        // 玩家反弹
+        player.setVelocityY(-300);
+    } else {
+        // 否则玩家受伤
+        handleHit(player, boss);
+    }
+}
+
+// 对Boss造成伤害
+function damageBoss(damage) {
+    // 减少Boss血量
+    bossHealth -= damage;
+    
+    // 更新Boss血条
+    bossHealthBar.width = (bossHealth / BOSS.MAX_HEALTH) * (BOSS.MAX_HEALTH / 2);
+    
+    // 检查Boss阶段变化
+    if (bossHealth <= BOSS.PHASE_HEALTH.PHASE3 && bossPhase < 3) {
+        bossPhase = 3;
+        transitionBossPhase(3);
+    } else if (bossHealth <= BOSS.PHASE_HEALTH.PHASE2 && bossPhase < 2) {
+        bossPhase = 2;
+        transitionBossPhase(2);
+    }
+    
+    // 检查Boss是否被击败
+    if (bossHealth <= 0) {
+        defeatedBoss();
+    } else {
+        // Boss受伤效果
+        boss.setTint(0xffffff);
+        boss.scene.time.delayedCall(200, () => {
+            if (boss && boss.active) {
+                boss.setTint(0xff0000);
+            }
+        });
+    }
+}
+
+// 运行Boss AI
+function runBossAI(scene) {
+    // 如果Boss未激活，不执行
+    if (!bossActive || !boss || !boss.active) return;
+    
+    // 更新Boss攻击计时器
+    scene.time.addEvent({
+        delay: 100,
+        callback: () => {
+            if (!bossActive || !boss || !boss.active) return;
+            
+            // 根据当前阶段决定可用的攻击
+            let attackTypes = [];
+            
+            // 阶段1攻击
+            if (bossPhase >= 1) {
+                attackTypes.push('jumpSmash', 'bulletSpray');
+            }
+            
+            // 阶段2攻击
+            if (bossPhase >= 2) {
+                attackTypes.push('dashAttack', 'minionSummon');
+            }
+            
+            // 阶段3攻击
+            if (bossPhase >= 3) {
+                attackTypes.push('laserBeam');
+            }
+            
+            // 随机选择攻击
+            for (const attackType of attackTypes) {
+                const attackConfig = BOSS.ATTACKS[attackType];
+                
+                // 检查攻击冷却
+                if (!bossAttackTimers[attackType] || scene.time.now > bossAttackTimers[attackType]) {
+                    // 概率触发攻击
+                    if (Phaser.Math.Between(1, 100) <= attackConfig.CHANCE) {
+                        // 执行攻击
+                        executeAttack(attackType, scene);
+                        
+                        // 设置冷却
+                        bossAttackTimers[attackType] = scene.time.now + attackConfig.COOLDOWN;
+                        
+                        // 找到一个攻击后跳出（每次只执行一种攻击）
+                        break;
+                    }
+                }
+            }
+            
+            // 基础AI：跟踪玩家
+            if (sonic && boss) {
+                // 水平移动朝向玩家
+                if (sonic.x < boss.x - 100) {
+                    boss.setVelocityX(-BOSS.MOVE_SPEED);
+                } else if (sonic.x > boss.x + 100) {
+                    boss.setVelocityX(BOSS.MOVE_SPEED);
+                } else {
+                    boss.setVelocityX(0);
+                }
+            }
+        },
+        loop: true
+    });
+}
+
+// 执行Boss攻击
+function executeAttack(attackType, scene) {
+    switch (attackType) {
+        case 'jumpSmash':
+            bossJumpSmash(scene);
+            break;
+        case 'bulletSpray':
+            bossBulletSpray(scene);
+            break;
+        case 'dashAttack':
+            bossDashAttack(scene);
+            break;
+        case 'minionSummon':
+            bossMinionSummon(scene);
+            break;
+        case 'laserBeam':
+            bossLaserBeam(scene);
+            break;
+    }
+}
+
+// Boss跳跃攻击
+function bossJumpSmash(scene) {
+    if (!boss || !boss.active) return;
+    
+    // 播放预警动画
+    boss.setTint(0xffff00);
+    
+    scene.time.delayedCall(500, () => {
+        if (!boss || !boss.active) return;
+        
+        // 恢复颜色
+        boss.setTint(bossPhase === 3 ? 0xff00ff : 0xff0000);
+        
+        // 跳跃
+        boss.setVelocityY(-BOSS.ATTACKS.jumpSmash.JUMP_FORCE);
+        
+        // 落地检测
+        const smashCheck = scene.time.addEvent({
+            delay: 100,
+            callback: () => {
+                if (!boss || !boss.active) {
+                    smashCheck.remove();
+                    return;
+                }
+                
+                // 当Boss落地
+                if (boss.body.velocity.y === 0 && boss.body.blocked.down) {
+                    smashCheck.remove();
+                    
+                    // 创建地面冲击波
+                    const shockwave = scene.add.circle(
+                        boss.x,
+                        boss.y + BOSS.SIZE/2,
+                        10,
+                        0xff9900,
+                        0.8
+                    );
+                    
+                    // 冲击波动画
+                    scene.tweens.add({
+                        targets: shockwave,
+                        scale: 15,
+                        alpha: 0,
+                        duration: 1000,
+                        onComplete: () => {
+                            shockwave.destroy();
+                        }
+                    });
+                    
+                    // 如果玩家在地面上且距离较近，造成伤害
+                    if (sonic && sonic.active && sonic.body.blocked.down && 
+                        Phaser.Math.Distance.Between(sonic.x, sonic.y, boss.x, boss.y) < 300) {
+                        handleHit(sonic, boss);
+                        
+                        // 击飞玩家
+                        if (sonic.x < boss.x) {
+                            sonic.setVelocity(-300, -200);
+                        } else {
+                            sonic.setVelocity(300, -200);
+                        }
+                    }
+                }
+            },
+            loop: true
+        });
+    });
+}
+
+// Boss子弹喷射
+function bossBulletSpray(scene) {
+    if (!boss || !boss.active) return;
+    
+    // 播放预警动画
+    boss.setTint(0x00ffff);
+    
+    scene.time.delayedCall(300, () => {
+        if (!boss || !boss.active) return;
+        
+        // 恢复颜色
+        boss.setTint(bossPhase === 3 ? 0xff00ff : 0xff0000);
+        
+        // 子弹数量和间隔取决于阶段
+        let bulletCount = BOSS.ATTACKS.bulletSpray.BULLETS;
+        let bulletDelay = BOSS.ATTACKS.bulletSpray.DELAY;
+        
+        // 更高阶段发射更多子弹
+        if (bossPhase >= 2) bulletCount += 2;
+        if (bossPhase >= 3) {
+            bulletCount += 3;
+            bulletDelay *= 0.7; // 更快的射速
+        }
+        
+        // 发射子弹
+        for (let i = 0; i < bulletCount; i++) {
+            scene.time.delayedCall(i * bulletDelay, () => {
+                if (!boss || !boss.active) return;
+                
+                const angle = (i / bulletCount) * 360;
+                createBossBullet(scene, angle);
+                
+                // 在最后一颗子弹发射后
+                if (i === bulletCount - 1) {
+                    // 如果是第3阶段，发射第二波
+                    if (bossPhase === 3) {
+                        scene.time.delayedCall(1000, () => {
+                            for (let j = 0; j < bulletCount; j++) {
+                                scene.time.delayedCall(j * bulletDelay, () => {
+                                    if (!boss || !boss.active) return;
+                                    
+                                    const angle = ((j / bulletCount) * 360) + 180/bulletCount;
+                                    createBossBullet(scene, angle);
+                                });
+                            }
+                        });
+                    }
+                }
+            });
+        }
+    });
+}
+
+// 创建Boss子弹
+function createBossBullet(scene, angle) {
+    // 创建子弹
+    const bullet = bossProjectiles.create(boss.x, boss.y, 'bossBullet');
+    bullet.setDisplaySize(20, 20);
+    bullet.setTint(0xff9900);
+    
+    // 根据角度设置速度
+    const speed = BOSS.ATTACKS.bulletSpray.SPEED;
+    const vx = Math.cos(Phaser.Math.DegToRad(angle)) * speed;
+    const vy = Math.sin(Phaser.Math.DegToRad(angle)) * speed;
+    bullet.setVelocity(vx, vy);
+    
+    // 设置子弹旋转
+    bullet.setAngularVelocity(300);
+    
+    // 子弹生命周期
+    scene.time.delayedCall(3000, () => {
+        if (bullet && bullet.active) {
+            bullet.destroy();
+        }
+    });
+}
+
+// Boss冲刺攻击
+function bossDashAttack(scene) {
+    if (!boss || !boss.active || !sonic || !sonic.active) return;
+    
+    // 播放预警动画
+    boss.setTint(0xff6600);
+    
+    // 保存原始位置
+    const originalX = boss.x;
+    const originalY = boss.y;
+    
+    scene.time.delayedCall(1000, () => {
+        if (!boss || !boss.active || !sonic || !sonic.active) return;
+        
+        // 恢复颜色
+        boss.setTint(bossPhase === 3 ? 0xff00ff : 0xff0000);
+        
+        // 计算目标方向
+        const angle = Phaser.Math.Angle.Between(boss.x, boss.y, sonic.x, sonic.y);
+        
+        // 设置冲刺速度
+        const dashSpeed = BOSS.ATTACKS.dashAttack.SPEED;
+        const vx = Math.cos(angle) * dashSpeed;
+        const vy = Math.sin(angle) * dashSpeed;
+        
+        boss.setVelocity(vx, vy);
+        
+        // 冲刺尾巴特效
+        const dashTrail = scene.time.addEvent({
+            delay: 50,
+            callback: () => {
+                if (!boss || !boss.active) {
+                    dashTrail.remove();
+                    return;
+                }
+                
+                const trail = scene.add.rectangle(
+                    boss.x,
+                    boss.y,
+                    boss.displayWidth * 0.8,
+                    boss.displayHeight * 0.8,
+                    0xff6600,
+                    0.5
+                );
+                
+                scene.tweens.add({
+                    targets: trail,
+                    alpha: 0,
+                    scale: 0.5,
+                    duration: 200,
+                    onComplete: () => {
+                        trail.destroy();
+                    }
+                });
+            },
+            loop: true
+        });
+        
+        // 冲刺结束
+        scene.time.delayedCall(1000, () => {
+            if (!boss || !boss.active) {
+                dashTrail.remove();
+                return;
+            }
+            
+            boss.setVelocity(0, 0);
+            dashTrail.remove();
+        });
+    });
+}
+
+// Boss召唤小怪
+function bossMinionSummon(scene) {
+    if (!boss || !boss.active) return;
+    
+    // 播放预警动画
+    boss.setTint(0x00ff00);
+    
+    // 召唤圈动画
+    const summonCircle = scene.add.circle(
+        boss.x,
+        boss.y,
+        boss.displayWidth,
+        0x00ff00,
+        0.3
+    );
+    
+    scene.tweens.add({
+        targets: summonCircle,
+        scale: 2,
+        alpha: 0,
+        duration: 1000,
+        onComplete: () => {
+            summonCircle.destroy();
+        }
+    });
+    
+    scene.time.delayedCall(1000, () => {
+        if (!boss || !boss.active) return;
+        
+        // 恢复颜色
+        boss.setTint(bossPhase === 3 ? 0xff00ff : 0xff0000);
+        
+        // 召唤数量取决于阶段
+        let minionCount = BOSS.ATTACKS.minionSummon.COUNT;
+        if (bossPhase === 3) minionCount += 2;
+        
+        // 召唤小怪
+        for (let i = 0; i < minionCount; i++) {
+            const angle = (i / minionCount) * 360;
+            const distance = 150;
+            const x = boss.x + Math.cos(Phaser.Math.DegToRad(angle)) * distance;
+            const y = boss.y + Math.sin(Phaser.Math.DegToRad(angle)) * distance;
+            
+            // 创建小怪
+            const minion = bossMinions.create(x, y, 'bossMinion');
+            minion.setDisplaySize(30, 30);
+            minion.setBounce(0.2);
+            minion.setCollideWorldBounds(true);
+            minion.setTint(0x00ff00);
+            
+            // 小怪AI：追踪玩家
+            const minionAI = scene.time.addEvent({
+                delay: 500,
+                callback: () => {
+                    if (!minion || !minion.active || !sonic || !sonic.active) {
+                        minionAI.remove();
+                        return;
+                    }
+                    
+                    // 靠近玩家
+                    if (sonic.x < minion.x) {
+                        minion.setVelocityX(-100);
+                    } else {
+                        minion.setVelocityX(100);
+                    }
+                    
+                    // 如果在地面上且玩家在上方，尝试跳跃
+                    if (minion.body.blocked.down && sonic.y < minion.y - 50) {
+                        minion.setVelocityY(-300);
+                    }
+                },
+                loop: true
+            });
+            
+            // 小怪生命周期
+            scene.time.delayedCall(BOSS.ATTACKS.minionSummon.LIFETIME, () => {
+                if (minion && minion.active) {
+                    // 爆炸特效
+                    const explosion = scene.add.circle(
+                        minion.x,
+                        minion.y,
+                        30,
+                        0x00ff00,
+                        0.8
+                    );
+                    
+                    scene.tweens.add({
+                        targets: explosion,
+                        scale: 2,
+                        alpha: 0,
+                        duration: 500,
+                        onComplete: () => {
+                            explosion.destroy();
+                        }
+                    });
+                    
+                    minion.destroy();
+                    minionAI.remove();
+                }
+            });
+        }
+    });
+}
+
+// Boss激光攻击
+function bossLaserBeam(scene) {
+    if (!boss || !boss.active || !sonic || !sonic.active) return;
+    
+    // 播放预警动画
+    boss.setTint(0xff00ff);
+    
+    // 目标角度：指向玩家
+    const targetAngle = Phaser.Math.Angle.Between(boss.x, boss.y, sonic.x, sonic.y);
+    
+    // 创建瞄准线
+    const aimLine = scene.add.line(
+        0, 0,
+        boss.x, boss.y,
+        boss.x + Math.cos(targetAngle) * 1000,
+        boss.y + Math.sin(targetAngle) * 1000,
+        0xff00ff, 0.5
+    ).setOrigin(0, 0).setLineWidth(5);
+    
+    // 瞄准动画
+    scene.tweens.add({
+        targets: aimLine,
+        alpha: 0.8,
+        lineWidth: 10,
+        duration: 1000,
+        yoyo: true,
+        repeat: 2,
+        onComplete: () => {
+            aimLine.destroy();
+            
+            if (!boss || !boss.active) return;
+            
+            // 发射激光
+            bossLaser = scene.add.rectangle(
+                boss.x, 
+                boss.y,
+                1000, 
+                30,
+                0xff00ff,
+                0.8
+            ).setOrigin(0, 0.5);
+            
+            // 设置激光角度和位置
+            bossLaser.rotation = targetAngle;
+            
+            // 激光伤害检测
+            const laserDamageCheck = scene.time.addEvent({
+                delay: 100,
+                callback: () => {
+                    if (!bossLaser || !bossLaser.active || !sonic || !sonic.active) {
+                        laserDamageCheck.remove();
+                        return;
+                    }
+                    
+                    // 检查玩家是否在激光范围内
+                    const distance = Phaser.Math.Distance.Between(boss.x, boss.y, sonic.x, sonic.y);
+                    const angle = Phaser.Math.Angle.Between(boss.x, boss.y, sonic.x, sonic.y);
+                    const angleDiff = Phaser.Math.Angle.Wrap(angle - bossLaser.rotation);
+                    
+                    if (distance < 800 && Math.abs(angleDiff) < 0.2) {
+                        handleHit(sonic, boss);
+                    }
+                },
+                loop: true
+            });
+            
+            // 激光持续时间
+            scene.time.delayedCall(BOSS.ATTACKS.laserBeam.DURATION, () => {
+                if (bossLaser && bossLaser.active) {
+                    scene.tweens.add({
+                        targets: bossLaser,
+                        alpha: 0,
+                        duration: 300,
+                        onComplete: () => {
+                            bossLaser.destroy();
+                            laserDamageCheck.remove();
+                        }
+                    });
+                } else {
+                    laserDamageCheck.remove();
+                }
+            });
+        }
+    });
+}
+
+// 处理Boss发射的子弹碰撞
+function hitBossProjectile(player, projectile) {
+    // 销毁子弹
+    projectile.destroy();
+    
+    // 处理玩家受伤
+    handleHit(player, projectile);
+}
+
+// 处理Boss小怪碰撞
+function hitBossMinion(player, minion) {
+    // 处理玩家受伤
+    handleHit(player, minion);
+    
+    // 如果玩家从上方踩到小怪
+    if (player.body.touching.down && minion.body.touching.up) {
+        // 摧毁小怪
+        const explosion = minion.scene.add.circle(
+            minion.x,
+            minion.y,
+            30,
+            0x00ff00,
+            0.8
+        );
+        
+        minion.scene.tweens.add({
+            targets: explosion,
+            scale: 2,
+            alpha: 0,
+            duration: 500,
+            onComplete: () => {
+                explosion.destroy();
+            }
+        });
+        
+        minion.destroy();
+        
+        // 玩家弹跳
+        player.setVelocityY(-300);
+    }
+}
+
+// 处理能力升级道具收集
+function collectPowerup(player, powerup) {
+    // 禁用能力升级道具的物理体和隐藏它
+    powerup.disableBody(true, true);
+    
+    // 随机选择一种能力升级类型
+    const powerupTypes = Object.keys(POWERUPS);
+    const powerupType = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
+    
+    // 清除之前的能力升级计时器
+    Object.keys(powerupTimers).forEach(type => {
+        if (powerupTimers[type]) {
+            powerupTimers[type].remove();
+            delete powerupTimers[type];
+        }
+    });
+    
+    // 激活能力升级
+    activatePowerup(player.scene, powerupType);
+    
+    // 增加分数
+    score += 200; // 能力升级得分
+    scoreText.setText('分数: ' + score);
+    
+    // 添加收集效果
+    player.setTint(POWERUPS[powerupType].COLOR);
+    
+    // 500毫秒后恢复颜色
+    player.scene.time.delayedCall(500, () => {
+        if (!isHurt && !isDashing) {
+            player.clearTint();
+        }
+    });
+}
+
+// 激活能力升级
+function activatePowerup(scene, type) {
+    // 设置当前能力
+    activePowerups[type] = true;
+    
+    // 更新能力文本
+    let powerupName = "无";
+    switch(type) {
+        case 'SHIELD':
+            powerupName = "护盾";
+            // 添加护盾效果
+            const shield = scene.add.circle(sonic.x, sonic.y, 25, POWERUPS.SHIELD.COLOR, 0.5);
+            shield.setDepth(100);
+            
+            // 更新护盾位置
+            scene.time.addEvent({
+                delay: 20,
+                callback: () => {
+                    shield.setPosition(sonic.x, sonic.y);
+                },
+                repeat: POWERUPS.SHIELD.DURATION / 20
+            });
+            
+            // 护盾消失
+            scene.time.delayedCall(POWERUPS.SHIELD.DURATION, () => {
+                shield.destroy();
+            });
+            break;
+            
+        case 'JUMP_BOOST':
+            powerupName = "跳跃提升";
+            // 临时提高跳跃力度
+            PLAYER.JUMP_FORCE *= POWERUPS.JUMP_BOOST.MULTIPLIER;
+            PLAYER.DOUBLE_JUMP_FORCE *= POWERUPS.JUMP_BOOST.MULTIPLIER;
+            
+            // 添加粒子效果
+            const jumpParticles = scene.add.particles('powerup').createEmitter({
+                x: sonic.x,
+                y: sonic.y,
+                speed: { min: -50, max: 50 },
+                scale: { start: 0.1, end: 0 },
+                lifespan: 300,
+                blendMode: 'ADD',
+                tint: POWERUPS.JUMP_BOOST.COLOR,
+                on: true
+            });
+            
+            // 更新粒子位置
+            scene.time.addEvent({
+                delay: 20,
+                callback: () => {
+                    jumpParticles.setPosition(sonic.x, sonic.y + 10);
+                },
+                repeat: POWERUPS.JUMP_BOOST.DURATION / 20
+            });
+            
+            // 恢复正常跳跃力度
+            scene.time.delayedCall(POWERUPS.JUMP_BOOST.DURATION, () => {
+                PLAYER.JUMP_FORCE /= POWERUPS.JUMP_BOOST.MULTIPLIER;
+                PLAYER.DOUBLE_JUMP_FORCE /= POWERUPS.JUMP_BOOST.MULTIPLIER;
+                jumpParticles.stop();
+            });
+            break;
+            
+        case 'SPEED_BOOST':
+            powerupName = "速度提升";
+            // 临时提高移动速度
+            PLAYER.MOVE_SPEED *= POWERUPS.SPEED_BOOST.MULTIPLIER;
+            PLAYER.AIR_MOVE_SPEED *= POWERUPS.SPEED_BOOST.MULTIPLIER;
+            
+            // 添加尾迹效果
+            const speedTrail = scene.add.particles('powerup').createEmitter({
+                x: sonic.x,
+                y: sonic.y,
+                speed: { min: -80, max: -40 },
+                scale: { start: 0.2, end: 0 },
+                lifespan: 500,
+                blendMode: 'ADD',
+                tint: POWERUPS.SPEED_BOOST.COLOR,
+                on: true
+            });
+            
+            // 更新尾迹位置
+            scene.time.addEvent({
+                delay: 20,
+                callback: () => {
+                    speedTrail.setPosition(sonic.x, sonic.y);
+                },
+                repeat: POWERUPS.SPEED_BOOST.DURATION / 20
+            });
+            
+            // 恢复正常速度
+            scene.time.delayedCall(POWERUPS.SPEED_BOOST.DURATION, () => {
+                PLAYER.MOVE_SPEED /= POWERUPS.SPEED_BOOST.MULTIPLIER;
+                PLAYER.AIR_MOVE_SPEED /= POWERUPS.SPEED_BOOST.MULTIPLIER;
+                speedTrail.stop();
+            });
+            break;
+            
+        case 'MAGNET':
+            powerupName = "磁铁";
+            // 创建磁铁效果区域
+            const magnetArea = scene.add.circle(sonic.x, sonic.y, POWERUPS.MAGNET.RADIUS, POWERUPS.MAGNET.COLOR, 0.2);
+            magnetArea.setDepth(50);
+            
+            // 更新磁铁区域位置
+            const magnetUpdateEvent = scene.time.addEvent({
+                delay: 20,
+                callback: () => {
+                    magnetArea.setPosition(sonic.x, sonic.y);
+                    
+                    // 吸引附近的金币
+                    if (coins) {
+                        coins.children.iterate(function(coin) {
+                            if (!coin || !coin.active) return;
+                            
+                            const dist = Phaser.Math.Distance.Between(sonic.x, sonic.y, coin.x, coin.y);
+                            if (dist < POWERUPS.MAGNET.RADIUS) {
+                                // 计算方向向量
+                                const dirX = sonic.x - coin.x;
+                                const dirY = sonic.y - coin.y;
+                                const length = Math.sqrt(dirX * dirX + dirY * dirY);
+                                
+                                // 设置金币移动速度（越近越快）
+                                const speed = 5 + (POWERUPS.MAGNET.RADIUS - dist) / 10;
+                                
+                                // 更新金币位置
+                                coin.x += (dirX / length) * speed;
+                                coin.y += (dirY / length) * speed;
+                                
+                                // 更新物理体位置
+                                if (coin.body) {
+                                    coin.body.position.x = coin.x - coin.width / 2;
+                                    coin.body.position.y = coin.y - coin.height / 2;
+                                }
+                            }
+                        });
+                    }
+                },
+                repeat: POWERUPS.MAGNET.DURATION / 20
+            });
+            
+            // 磁铁效果结束
+            scene.time.delayedCall(POWERUPS.MAGNET.DURATION, () => {
+                magnetArea.destroy();
+                magnetUpdateEvent.remove();
+            });
+            break;
+            
+        default:
+            powerupName = "无";
+    }
+    
+    // 更新能力文本
+    powerupText.setText('能力: ' + powerupName);
+    
+    // 设置能力失效计时器
+    powerupTimers[type] = scene.time.delayedCall(POWERUPS[type].DURATION, () => {
+        // 能力失效
+        delete activePowerups[type];
+        delete powerupTimers[type];
+        
+        // 如果没有激活的能力，更新文本
+        if (Object.keys(activePowerups).length === 0) {
+            powerupText.setText('能力: 无');
+        }
+    });
+}
+
+// 生成随机能力升级道具
+function spawnRandomPowerup(scene) {
+    // 随机选择一个位置（确保不在玩家附近）
+    let x, y;
+    let validPosition = false;
+    
+    while (!validPosition) {
+        // 随机位置
+        x = Phaser.Math.Between(100, WORLD_WIDTH - 100);
+        y = Phaser.Math.Between(100, 400);
+        
+        // 确保不会生成在玩家附近
+        if (Math.abs(x - sonic.x) > 200 && Math.abs(y - sonic.y) > 100) {
+            validPosition = true;
+        }
+    }
+    
+    // 创建能力升级道具
+    const powerup = powerups.create(x, y, 'powerup');
+    powerup.setDisplaySize(30, 30);
+    powerup.body.setAllowGravity(false); // 确保道具不受重力影响
+    
+    // 随机颜色（基于可能的能力类型）
+    const powerupTypes = Object.keys(POWERUPS);
+    const randomType = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
+    powerup.setTint(POWERUPS[randomType].COLOR);
+    
+    // 添加闪烁效果
+    scene.tweens.add({
+        targets: powerup,
+        alpha: 0.5,
+        duration: 500,
+        yoyo: true,
+        repeat: -1
+    });
+    
+    // 添加上下浮动效果
+    scene.tweens.add({
+        targets: powerup,
+        y: y - 20,
+        duration: 1500,
+        ease: 'Sine.easeInOut',
+        yoyo: true,
+        repeat: -1
+    });
+    
+    // 添加旋转效果
+    scene.tweens.add({
+        targets: powerup,
+        angle: 360,
+        duration: 3000,
+        repeat: -1
+    });
+    
+    // 设置道具生命周期
+    scene.time.delayedCall(30000, () => {
+        if (powerup.active) {
+            // 消失前的动画
+            scene.tweens.add({
+                targets: powerup,
+                alpha: 0,
+                scale: 2,
+                duration: 500,
+                onComplete: () => {
+                    powerup.destroy();
+                }
+            });
+        }
+    });
 } 
