@@ -35,6 +35,9 @@ let jumpBufferTimer = null; // 跳跃缓冲计时器
 let coyoteTime = false; // 小悬崖宽容时间标志
 let coyoteTimer = null; // 小悬崖宽容时间计时器
 let lastOnGround = 0; // 上次在地面上的时间
+let enemyBullets; // 敌人子弹组
+let flyingEnemies; // 飞行敌人组
+let bulletEvents = []; // 敌人发射子弹的计时器数组
 
 // 冲刺系统变量
 let isDashing = false; // 是否正在冲刺
@@ -72,6 +75,8 @@ function preload() {
     this.load.image('spike', 'assets/spike.png');
     this.load.image('coin', 'assets/coin.png');
     this.load.image('enemy', 'assets/spike.png'); // 使用尖刺图片作为怪物图片
+    this.load.image('bullet', 'assets/spike.png'); // 使用尖刺图片作为子弹图片
+    this.load.image('flyingEnemy', 'assets/spike.png'); // 使用尖刺图片作为飞行敌人图片
     this.load.spritesheet('sonic', 
         'assets/sonic.png',
         { 
@@ -168,6 +173,16 @@ function create() {
     // 创建怪物组
     enemies = this.physics.add.group();
     
+    // 创建敌人子弹组
+    enemyBullets = this.physics.add.group({
+        allowGravity: false // 子弹不受重力影响
+    });
+    
+    // 创建飞行敌人组
+    flyingEnemies = this.physics.add.group({
+        allowGravity: false // 飞行敌人不受重力影响
+    });
+    
     // 在平台上随机放置怪物
     platformPositions.forEach(platform => {
         // 每个平台有30%的几率生成怪物，使用配置中的阈值
@@ -206,8 +221,42 @@ function create() {
                 duration: ENEMIES.ROTATION_DURATION,
                 repeat: -1
             });
+            
+            // 随机选择是否为发射子弹的敌人类型
+            if (Math.random() < ENEMIES.BULLETS.SHOOTER_RATIO) {
+                enemy.canShoot = true;
+                enemy.setTint(0xffaa00); // 黄色标记能发射子弹的敌人
+                // 将敌人稍微放大一点以突出显示
+                enemy.setDisplaySize(36, 36);
+                
+                // 设置定时发射子弹
+                const bulletEvent = this.time.addEvent({
+                    delay: ENEMIES.BULLETS.FIRE_INTERVAL,
+                    callback: function() {
+                        if (enemy.active && enemy.canShoot) {
+                            fireEnemyBullet(this, enemy);
+                        }
+                    },
+                    callbackScope: this,
+                    loop: true
+                });
+                
+                // 存储事件引用以便后续清理
+                bulletEvents.push(bulletEvent);
+            }
         }
     });
+    
+    // 在空中随机生成飞行敌人
+    for (let i = 0; i < 10; i++) {
+        const x = Phaser.Math.Between(300, WORLD_WIDTH - 300);
+        const y = Phaser.Math.Between(100, 300); // 控制飞行敌人的高度范围
+        
+        // 只在通过随机几率判断时生成
+        if (Math.random() < ENEMIES.FLYING.SPAWN_CHANCE) {
+            createFlyingEnemy(this, x, y);
+        }
+    }
 
     // 创建金币组
     coins = this.physics.add.group({
@@ -345,6 +394,10 @@ function create() {
         this.physics.add.collider(sonic, spikes, hitSpike, null, this);
         // 添加与怪物的碰撞
         this.physics.add.collider(sonic, enemies, hitEnemy, null, this);
+        // 添加与飞行敌人的碰撞
+        this.physics.add.collider(sonic, flyingEnemies, hitFlyingEnemy, null, this);
+        // 添加与敌人子弹的碰撞
+        this.physics.add.collider(sonic, enemyBullets, hitEnemyBullet, null, this);
     });
     
     // 改用overlap来检测金币收集 - 这样可以穿过金币并收集它
@@ -616,6 +669,27 @@ function update() {
         });
     }
 
+    // 更新飞行敌人移动
+    if (flyingEnemies) {
+        flyingEnemies.children.iterate(function(enemy) {
+            if (!enemy || !enemy.active) return;
+            
+            // 检查飞行敌人是否到达世界边界
+            if (enemy.x <= 50) {
+                enemy.direction = 1; // 向右移动
+                enemy.setVelocityX(enemy.moveSpeed);
+            } else if (enemy.x >= WORLD_WIDTH - 50) {
+                enemy.direction = -1; // 向左移动
+                enemy.setVelocityX(-enemy.moveSpeed);
+            }
+            
+            // 如果飞行敌人速度为0（可能卡住），重新设置速度
+            if (enemy.body.velocity.x === 0) {
+                enemy.setVelocityX(enemy.direction * enemy.moveSpeed);
+            }
+        });
+    }
+
     // 只有在游戏开始后才更新分数
     if (gameStarted) {
         score += SCORE.BASE_SCORE;
@@ -729,10 +803,11 @@ function handleHit(player, hazard) {
     // 如果已经处于受伤状态，不重复计算伤害
     if (isHurt) {
         // 冲刺时碰撞敌人会消灭它们
-        if (isDashing && hazard.texture.key === 'enemy') {
+        if (isDashing && (hazard.texture.key === 'enemy' || hazard.texture.key === 'flyingEnemy')) {
             hazard.disableBody(true, true);
             // 增加分数，使用配置中的分数值
-            score += SCORE.DASH_ENEMY_SCORE;
+            let scoreValue = hazard.texture.key === 'flyingEnemy' ? SCORE.FLYING_ENEMY_SCORE : SCORE.ENEMY_SCORE;
+            score += scoreValue * 2; // 冲刺击败得双倍分数
             scoreText.setText('分数: ' + score);
         }
         return;
@@ -779,21 +854,74 @@ function endGame(scene) {
         sonic.setTint(0xff0000);
         sonic.anims.play('turn');
         
-        // 添加游戏结束文本 - 固定到摄像机
-        scene.add.text(scene.cameras.main.midPoint.x - 150, 250, '游戏结束', { 
+        // 创建一个UI场景层
+        const gameOverUI = scene.add.container(0, 0);
+        gameOverUI.setScrollFactor(0); // 确保容器不随摄像机滚动
+        
+        // 使用固定的屏幕坐标
+        const screenCenterX = scene.cameras.main.width / 2;
+        const screenCenterY = scene.cameras.main.height / 2;
+        
+        // 添加半透明黑色遮罩，使游戏结束界面更加突出
+        const overlay = scene.add.rectangle(
+            screenCenterX,
+            screenCenterY,
+            scene.cameras.main.width,
+            scene.cameras.main.height,
+            0x000000, 0.6
+        ).setScrollFactor(0);
+        gameOverUI.add(overlay);
+        
+        // 添加游戏结束文本 - 固定到屏幕中心
+        const gameOverText = scene.add.text(screenCenterX, 200, '游戏结束', { 
             fontSize: '64px', 
-            fill: '#000' 
-        }).setScrollFactor(0);
+            fill: '#ffffff',
+            stroke: '#ff0000',
+            strokeThickness: 6,
+            shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 2, stroke: true, fill: true }
+        }).setOrigin(0.5).setScrollFactor(0);
+        gameOverUI.add(gameOverText);
         
-        // 添加重新开始按钮 - 固定到摄像机
-        let restartButton = scene.add.text(scene.cameras.main.midPoint.x - 50, 350, '重新开始', { 
+        // 添加最终分数显示
+        const scoreText = scene.add.text(screenCenterX, 280, '最终分数: ' + score, { 
+            fontSize: '36px', 
+            fill: '#ffffff'
+        }).setOrigin(0.5).setScrollFactor(0);
+        gameOverUI.add(scoreText);
+        
+        // 添加收集的金币数量
+        const coinText = scene.add.text(screenCenterX, 330, '金币: ' + coinCount, { 
             fontSize: '32px', 
-            fill: '#000',
-            backgroundColor: '#fff',
-            padding: { x: 10, y: 5 }
-        }).setScrollFactor(0);
+            fill: '#ffff00'
+        }).setOrigin(0.5).setScrollFactor(0);
+        gameOverUI.add(coinText);
         
-        restartButton.setInteractive();
+        // 简单文本按钮方案
+        const restartButton = scene.add.text(screenCenterX, 400, '[ 重新开始 ]', { 
+            fontSize: '36px', 
+            fill: '#00ff00',
+            fontStyle: 'bold',
+            backgroundColor: '#004400',
+            padding: { x: 20, y: 10 }
+        }).setOrigin(0.5).setScrollFactor(0).setInteractive({ useHandCursor: true });
+        gameOverUI.add(restartButton);
+        
+        // 悬停效果
+        restartButton.on('pointerover', () => {
+            restartButton.setStyle({ 
+                fill: '#ffffff',
+                fontSize: '38px'
+            });
+        });
+        
+        restartButton.on('pointerout', () => {
+            restartButton.setStyle({ 
+                fill: '#00ff00', 
+                fontSize: '36px'
+            });
+        });
+        
+        // 点击重启游戏
         restartButton.on('pointerdown', () => {
             scene.scene.restart();
             gameOver = false;
@@ -801,6 +929,36 @@ function endGame(scene) {
             coinCount = 0;
             gameStarted = false;
             health = 3; // 重置生命值
+        });
+        
+        // 添加按键提示文本
+        const spaceText = scene.add.text(screenCenterX, 460, '按空格键重新开始', { 
+            fontSize: '24px', 
+            fill: '#ffffff'
+        }).setOrigin(0.5).setScrollFactor(0);
+        gameOverUI.add(spaceText);
+        
+        // 确保游戏结束UI在最上层
+        gameOverUI.setDepth(10000);
+        
+        // 添加键盘空格键重新开始功能
+        scene.input.keyboard.once('keydown-SPACE', () => {
+            scene.scene.restart();
+            gameOver = false;
+            score = 0;
+            coinCount = 0;
+            gameStarted = false;
+            health = 3; // 重置生命值
+        });
+        
+        // 添加死亡动画效果
+        scene.tweens.add({
+            targets: gameOverText,
+            y: 180,
+            duration: 1500,
+            ease: 'Bounce',
+            yoyo: true,
+            repeat: -1
         });
     }
 }
@@ -948,4 +1106,158 @@ function startDash(scene, direction) {
             }
         }
     });
+}
+
+// 创建花朵式扩散子弹
+function fireEnemyBullet(scene, enemy) {
+    const bulletCount = ENEMIES.BULLETS.COUNT;
+    const angleStep = 360 / bulletCount;
+    
+    // 在玩家太远的时候不发射子弹
+    if (Math.abs(enemy.x - sonic.x) > ENEMIES.BULLETS.MAX_DETECT_DISTANCE) {
+        return;
+    }
+
+    // 创建多个子弹，围成圆形
+    for (let i = 0; i < bulletCount; i++) {
+        const angle = i * angleStep;
+        // 转换角度为弧度
+        const rad = Phaser.Math.DegToRad(angle);
+        
+        // 创建子弹
+        const bullet = enemyBullets.create(enemy.x, enemy.y, 'bullet');
+        bullet.setDisplaySize(20, 20);
+        bullet.setTint(0xff00ff); // 紫色
+        
+        // 设置子弹速度
+        const velocityX = Math.cos(rad) * ENEMIES.BULLETS.SPEED;
+        const velocityY = Math.sin(rad) * ENEMIES.BULLETS.SPEED;
+        bullet.setVelocity(velocityX, velocityY);
+        
+        // 设置子弹旋转动画
+        scene.tweens.add({
+            targets: bullet,
+            angle: 360,
+            duration: 1000,
+            repeat: -1
+        });
+        
+        // 设置子弹生命周期
+        scene.time.delayedCall(ENEMIES.BULLETS.LIFETIME, () => {
+            if (bullet.active) {
+                bullet.destroy();
+            }
+        });
+    }
+    
+    // 添加子弹发射效果
+    enemy.setTint(0xffffff); // 发射时短暂变白色
+    
+    // 添加闪光效果
+    const flash = scene.add.circle(enemy.x, enemy.y, 25, 0xff00ff, 0.7);
+    scene.tweens.add({
+        targets: flash,
+        alpha: 0,
+        scale: 1.5,
+        duration: 300,
+        onComplete: function() {
+            flash.destroy();
+        }
+    });
+    
+    scene.time.delayedCall(200, () => {
+        if (enemy.active && enemy.canShoot) {
+            enemy.setTint(0xffaa00); // 恢复原来的颜色
+        }
+    });
+}
+
+// 创建飞行敌人
+function createFlyingEnemy(scene, x, y) {
+    const flyingEnemy = flyingEnemies.create(x, y, 'flyingEnemy');
+    flyingEnemy.setDisplaySize(32, 32);
+    flyingEnemy.setTint(0x00aaff); // 设置蓝色色调
+    flyingEnemy.setCollideWorldBounds(true);
+    
+    // 随机设置飞行敌人的移动方向和速度
+    flyingEnemy.direction = Math.random() > 0.5 ? 1 : -1;
+    flyingEnemy.moveSpeed = Phaser.Math.Between(
+        ENEMIES.FLYING.MOVE_SPEED_MIN, 
+        ENEMIES.FLYING.MOVE_SPEED_MAX
+    );
+    flyingEnemy.setVelocityX(flyingEnemy.direction * flyingEnemy.moveSpeed);
+    
+    // 存储初始Y坐标
+    flyingEnemy.startY = y;
+    
+    // 上下飞行动画
+    scene.tweens.add({
+        targets: flyingEnemy,
+        y: y + ENEMIES.FLYING.AMPLITUDE,
+        duration: ENEMIES.FLYING.PERIOD / 2,
+        ease: 'Sine.easeInOut',
+        yoyo: true,
+        repeat: -1
+    });
+    
+    // 添加旋转动画
+    scene.tweens.add({
+        targets: flyingEnemy,
+        angle: flyingEnemy.direction * 360, // 根据移动方向决定旋转方向
+        duration: 3000,
+        repeat: -1
+    });
+    
+    // 随机决定是否是发射子弹的飞行敌人 (30%几率)
+    if (Math.random() < 0.5) {
+        flyingEnemy.canShoot = true;
+        flyingEnemy.setTint(0x00ffaa); // 绿蓝色标记能发射子弹的飞行敌人
+        // 稍微增大尺寸以便更醒目
+        flyingEnemy.setDisplaySize(36, 36);
+        
+        // 设置定时发射子弹
+        const bulletEvent = scene.time.addEvent({
+            delay: ENEMIES.BULLETS.FIRE_INTERVAL * 1.2, // 比普通敌人发射频率低
+            callback: function() {
+                if (flyingEnemy.active && flyingEnemy.canShoot) {
+                    fireEnemyBullet(scene, flyingEnemy);
+                }
+            },
+            callbackScope: scene,
+            loop: true
+        });
+        
+        // 存储事件引用以便后续清理
+        bulletEvents.push(bulletEvent);
+    }
+    
+    return flyingEnemy;
+}
+
+// 处理与飞行敌人的碰撞
+function hitFlyingEnemy(player, enemy) {
+    // 如果玩家从上方跳到怪物头上
+    if (player.body.touching.down && enemy.body.touching.up) {
+        // 消灭怪物
+        enemy.disableBody(true, true);
+        
+        // 玩家反弹
+        player.setVelocityY(-300);
+        
+        // 增加分数，使用配置中的分数值
+        score += SCORE.FLYING_ENEMY_SCORE;
+        scoreText.setText('分数: ' + score);
+    } else {
+        // 否则玩家受伤
+        handleHit(player, enemy);
+    }
+}
+
+// 处理子弹碰撞
+function hitEnemyBullet(player, bullet) {
+    // 销毁子弹
+    bullet.destroy();
+    
+    // 处理玩家受伤
+    handleHit(player, bullet);
 } 

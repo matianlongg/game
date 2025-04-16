@@ -27,7 +27,7 @@ const GAME_CONFIG = {
 // 游戏世界配置
 const WORLD = {
     // 游戏世界宽度 (屏幕宽度的4倍)
-    WIDTH: 3200,
+    WIDTH: 6200,
     // 游戏世界高度
     HEIGHT: 600
 };
@@ -86,7 +86,36 @@ const ENEMIES = {
     // 敌人旋转动画持续时间
     ROTATION_DURATION: 1500,
     // 敌人生成几率 (0-1之间，越高越不容易生成)
-    SPAWN_THRESHOLD: 0.7
+    SPAWN_THRESHOLD: 0.1,
+    // 子弹配置
+    BULLETS: {
+        // 发射间隔（毫秒）
+        FIRE_INTERVAL: 2000,
+        // 子弹速度
+        SPEED: 130,
+        // 子弹生命周期（毫秒）
+        LIFETIME: 4000,
+        // 子弹扩散角度（度）
+        SPREAD_ANGLE: 45,
+        // 子弹数量（每次发射）
+        COUNT: 8,
+        // 拥有子弹能力的敌人比例
+        SHOOTER_RATIO: 0.8,
+        // 最大检测距离（超过此距离不发射）
+        MAX_DETECT_DISTANCE: 800
+    },
+    // 飞行敌人配置
+    FLYING: {
+        // 移动速度范围
+        MOVE_SPEED_MIN: 70,
+        MOVE_SPEED_MAX: 120,
+        // 飞行高度振幅
+        AMPLITUDE: 100,
+        // 飞行周期（毫秒）
+        PERIOD: 2000,
+        // 生成几率
+        SPAWN_CHANCE: 0.4
+    }
 };
 
 // 金币配置
@@ -108,5 +137,9 @@ const SCORE = {
     // 击败敌人得分
     ENEMY_SCORE: 100,
     // 冲刺击败敌人得分
-    DASH_ENEMY_SCORE: 200
+    DASH_ENEMY_SCORE: 200,
+    // 金币得分
+    COIN_SCORE: 50,
+    // 飞行敌人得分
+    FLYING_ENEMY_SCORE: 150
 }; 
