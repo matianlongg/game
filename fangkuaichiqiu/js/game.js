@@ -1,8 +1,8 @@
 // 游戏核心配置，使用config.js中的设置
 const config = {
     type: GAME_CONFIG.type,
-    width: GAME_CONFIG.width,
-    height: GAME_CONFIG.height,
+    width: WINDOW.WIDTH,  // 使用窗口宽度作为默认显示宽度
+    height: WINDOW.HEIGHT, // 使用窗口高度作为默认显示高度
     physics: GAME_CONFIG.physics,
     scene: {
         preload: preload,
@@ -33,6 +33,10 @@ let currentGameMode; // 当前游戏模式
 let modeSelectionGroup; // 模式选择界面组
 let playerSizeText; // 玩家尺寸文本（竞争模式）
 let ballSpawnTimer; // 球生成计时器（竞争模式）
+let mainCamera; // 主相机
+let canvasWidth; // 当前画布宽度
+let canvasHeight; // 当前画布高度
+let uiLayer; // UI图层，用于固定UI元素在屏幕上
 
 /**
  * 预加载游戏资源
@@ -45,10 +49,16 @@ function preload() {
  * 创建游戏场景和对象
  */
 function create() {
+    // 创建主相机
+    mainCamera = this.cameras.main;
+    
+    // 创建UI图层
+    uiLayer = this.add.container(0, 0);
+    
     // 创建玩家控制的方块 - 暂时隐藏，等选择模式后再显示
     player = this.add.rectangle(
-        GAME_CONFIG.width / 2, 
-        GAME_CONFIG.height / 2, 
+        WINDOW.WIDTH / 2, 
+        WINDOW.HEIGHT / 2, 
         SQUARE.SIZE, 
         SQUARE.SIZE, 
         SQUARE.COLOR
@@ -71,45 +81,50 @@ function create() {
         fontSize: '24px', 
         fill: '#FFF',
         fontFamily: 'Arial'
-    }).setVisible(false);
+    }).setVisible(false).setScrollFactor(0);
+    uiLayer.add(scoreText);
     
     // 初始化时间显示
-    timeText = this.add.text(GAME_CONFIG.width - 150, 16, '时间: ' + timeLeft, { 
+    timeText = this.add.text(WINDOW.WIDTH - 150, 16, '时间: ' + timeLeft, { 
         fontSize: '24px', 
         fill: '#FFF',
         fontFamily: 'Arial'
-    }).setVisible(false);
+    }).setVisible(false).setScrollFactor(0);
+    uiLayer.add(timeText);
     
     // 初始化球数量显示（躲避模式用）
-    ballCountText = this.add.text(GAME_CONFIG.width / 2, 16, '球数量: 0/' + BALL.MAX_COUNT, { 
+    ballCountText = this.add.text(WINDOW.WIDTH / 2, 16, '球数量: 0/' + BALL.MAX_COUNT, { 
         fontSize: '24px', 
         fill: '#FFF',
         fontFamily: 'Arial'
-    }).setOrigin(0.5, 0).setVisible(false);
+    }).setOrigin(0.5, 0).setVisible(false).setScrollFactor(0);
+    uiLayer.add(ballCountText);
     
     // 初始化玩家尺寸显示（竞争模式用）
-    playerSizeText = this.add.text(GAME_CONFIG.width / 2, 16, '方块大小: ' + SQUARE.SIZE, { 
+    playerSizeText = this.add.text(WINDOW.WIDTH / 2, 16, '方块大小: ' + SQUARE.SIZE, { 
         fontSize: '24px', 
         fill: '#FFF',
         fontFamily: 'Arial'
-    }).setOrigin(0.5, 0).setVisible(false);
+    }).setOrigin(0.5, 0).setVisible(false).setScrollFactor(0);
+    uiLayer.add(playerSizeText);
     
     // 预先准备游戏结束文本（默认隐藏）
     gameOverText = this.add.text(
-        GAME_CONFIG.width / 2, 
-        GAME_CONFIG.height / 2 - 50, 
+        WINDOW.WIDTH / 2, 
+        WINDOW.HEIGHT / 2 - 50, 
         '游戏结束!', 
         { 
             fontSize: '48px', 
             fill: '#FF0000',
             fontFamily: 'Arial'
         }
-    ).setOrigin(0.5).setVisible(false);
+    ).setOrigin(0.5).setVisible(false).setScrollFactor(0);
+    uiLayer.add(gameOverText);
     
     // 预先准备重新开始按钮（默认隐藏）
     restartButton = this.add.text(
-        GAME_CONFIG.width / 2, 
-        GAME_CONFIG.height / 2 + 50, 
+        WINDOW.WIDTH / 2, 
+        WINDOW.HEIGHT / 2 + 50, 
         '再来一局', 
         { 
             fontSize: '32px', 
@@ -121,7 +136,9 @@ function create() {
     ).setOrigin(0.5)
      .setInteractive({ useHandCursor: true })
      .on('pointerdown', restartGame)
-     .setVisible(false);
+     .setVisible(false)
+     .setScrollFactor(0);
+    uiLayer.add(restartButton);
     
     // 创建键盘输入
     cursors = this.input.keyboard.createCursorKeys();
@@ -139,7 +156,7 @@ function createModeSelectionUI(scene) {
     
     // 创建标题
     const title = scene.add.text(
-        GAME_CONFIG.width / 2,
+        WINDOW.WIDTH / 2,
         100,
         '选择游戏模式',
         {
@@ -153,7 +170,7 @@ function createModeSelectionUI(scene) {
     
     // 创建躲避模式按钮
     const dodgeButton = scene.add.text(
-        GAME_CONFIG.width / 2,
+        WINDOW.WIDTH / 2,
         250,
         GAME_MODES.DODGE.name,
         {
@@ -169,7 +186,7 @@ function createModeSelectionUI(scene) {
     
     // 添加模式描述
     const dodgeDesc = scene.add.text(
-        GAME_CONFIG.width / 2,
+        WINDOW.WIDTH / 2,
         300,
         GAME_MODES.DODGE.description,
         {
@@ -184,7 +201,7 @@ function createModeSelectionUI(scene) {
     
     // 创建竞争模式按钮
     const competeButton = scene.add.text(
-        GAME_CONFIG.width / 2,
+        WINDOW.WIDTH / 2,
         400,
         GAME_MODES.COMPETE.name,
         {
@@ -200,7 +217,7 @@ function createModeSelectionUI(scene) {
     
     // 添加模式描述
     const competeDesc = scene.add.text(
-        GAME_CONFIG.width / 2,
+        WINDOW.WIDTH / 2,
         450,
         GAME_MODES.COMPETE.description,
         {
@@ -224,6 +241,27 @@ function selectGameMode(scene, modeId) {
     // 隐藏模式选择界面
     modeSelectionGroup.setVisible(false);
     
+    // 根据游戏模式设置世界边界和相机
+    if (currentGameMode === GAME_MODES.DODGE.id) {
+        // 躲避模式 - 使用较小的世界大小
+        canvasWidth = GAME_MODES.DODGE.canvas.width;
+        canvasHeight = GAME_MODES.DODGE.canvas.height;
+    } else if (currentGameMode === GAME_MODES.COMPETE.id) {
+        // 竞争模式 - 使用较大的世界大小
+        canvasWidth = GAME_MODES.COMPETE.canvas.width;
+        canvasHeight = GAME_MODES.COMPETE.canvas.height;
+    }
+    
+    // 设置物理世界边界
+    scene.physics.world.setBounds(0, 0, canvasWidth, canvasHeight);
+    
+    // 设置主相机边界
+    mainCamera = scene.cameras.main;
+    mainCamera.setBounds(0, 0, canvasWidth, canvasHeight);
+    
+    // 创建固定在屏幕上的UI图层
+    setupUILayer(scene);
+    
     // 显示玩家方块
     player.setVisible(true);
     
@@ -239,15 +277,16 @@ function selectGameMode(scene, modeId) {
         
         // 显示开始提示
         startText = scene.add.text(
-            GAME_CONFIG.width / 2, 
-            GAME_CONFIG.height / 2, 
+            WINDOW.WIDTH / 2, 
+            WINDOW.HEIGHT / 2, 
             '按空格键开始躲避模式', 
             { 
                 fontSize: '32px', 
                 fill: '#FFF',
                 fontFamily: 'Arial'
             }
-        ).setOrigin(0.5);
+        ).setOrigin(0.5).setScrollFactor(0);
+        uiLayer.add(startText);
     } else if (currentGameMode === GAME_MODES.COMPETE.id) {
         // 竞争模式显示玩家尺寸
         playerSizeText.setVisible(true);
@@ -255,15 +294,16 @@ function selectGameMode(scene, modeId) {
         
         // 显示开始提示
         startText = scene.add.text(
-            GAME_CONFIG.width / 2, 
-            GAME_CONFIG.height / 2, 
+            WINDOW.WIDTH / 2, 
+            WINDOW.HEIGHT / 2, 
             '按空格键开始竞争模式', 
             { 
                 fontSize: '32px', 
                 fill: '#FFF',
                 fontFamily: 'Arial'
             }
-        ).setOrigin(0.5);
+        ).setOrigin(0.5).setScrollFactor(0);
+        uiLayer.add(startText);
     }
     
     // 绑定空格键开始游戏
@@ -272,6 +312,14 @@ function selectGameMode(scene, modeId) {
             startGame(scene);
         }
     });
+}
+
+/**
+ * 设置UI图层，使UI元素固定在屏幕上
+ */
+function setupUILayer(scene) {
+    // 确保UI元素不随相机移动
+    uiLayer.setDepth(100); // 设置较高的深度值，确保UI显示在游戏元素之上
 }
 
 /**
@@ -285,6 +333,9 @@ function update() {
     // 处理玩家输入
     handlePlayerInput(this);
     
+    // 相机跟随玩家
+    updateCamera(this);
+    
     // 根据不同模式进行不同的更新逻辑
     if (currentGameMode === GAME_MODES.DODGE.id) {
         // 躲避模式 - 更新球的数量显示和检查球数量上限
@@ -295,6 +346,14 @@ function update() {
         updatePlayerSize(this);
         checkWinCondition(this);
     }
+}
+
+/**
+ * 更新相机位置，使其跟随玩家
+ */
+function updateCamera(scene) {
+    // 使用线性插值让相机平滑跟随玩家
+    mainCamera.startFollow(player, true, CAMERA.LERP, CAMERA.LERP);
 }
 
 /**
@@ -323,6 +382,18 @@ function handlePlayerInput(scene) {
  */
 function startGame(scene) {
     gameStarted = true;
+    
+    // 根据不同模式设置分数初始值
+    if (currentGameMode === GAME_MODES.DODGE.id) {
+        // 躲避模式分数从0开始
+        score = 0;
+    } else if (currentGameMode === GAME_MODES.COMPETE.id) {
+        // 竞争模式分数从0开始
+        score = 0;
+    }
+    
+    scoreText.setText('分数: ' + score);
+    
     if (startText) {
         startText.destroy();
     }
@@ -339,8 +410,7 @@ function startGame(scene) {
         
         // 设置球与球之间的碰撞
         scene.physics.add.collider(balls, balls);
-    } 
-    else if (currentGameMode === GAME_MODES.COMPETE.id) {
+    } else if (currentGameMode === GAME_MODES.COMPETE.id) {
         // 竞争模式 - 创建初始的球
         for (let i = 0; i < BALL.INITIAL_COUNT; i++) {
             createBall(scene);
@@ -404,8 +474,8 @@ function createEnemySquare(scene, index) {
     // 随机位置，避免与玩家重叠
     let x, y;
     do {
-        x = Phaser.Math.Between(50, GAME_CONFIG.width - 50);
-        y = Phaser.Math.Between(50, GAME_CONFIG.height - 50);
+        x = Phaser.Math.Between(50, canvasWidth - 50);
+        y = Phaser.Math.Between(50, canvasHeight - 50);
     } while (Phaser.Math.Distance.Between(x, y, player.x, player.y) < 200);
     
     // 随机大小
@@ -575,8 +645,8 @@ function enemyEatBall(enemy, ball) {
     // 生成两个完全随机位置的新球
     for (let i = 0; i < 2; i++) {
         // 随机位置
-        const randomX = Phaser.Math.Between(newBallSize, GAME_CONFIG.width - newBallSize);
-        const randomY = Phaser.Math.Between(newBallSize, GAME_CONFIG.height - newBallSize);
+        const randomX = Phaser.Math.Between(newBallSize, canvasWidth - newBallSize);
+        const randomY = Phaser.Math.Between(newBallSize, canvasHeight - newBallSize);
         
         createBall(
             this, 
@@ -614,8 +684,8 @@ function eatBallCompete(player, ball) {
     // 生成两个完全随机位置的新球
     for (let i = 0; i < 2; i++) {
         // 随机位置
-        const randomX = Phaser.Math.Between(newBallSize, GAME_CONFIG.width - newBallSize);
-        const randomY = Phaser.Math.Between(newBallSize, GAME_CONFIG.height - newBallSize);
+        const randomX = Phaser.Math.Between(newBallSize, canvasWidth - newBallSize);
+        const randomY = Phaser.Math.Between(newBallSize, canvasHeight - newBallSize);
         
         createBall(
             this, 
@@ -669,7 +739,7 @@ function checkWinCondition(scene) {
  * 显示得分动画
  */
 function showPointsAnimation(scene, x, y, points) {
-    // 显示得分动画
+    // 显示得分动画，确保它在世界坐标系而不是屏幕坐标系
     const pointsText = scene.add.text(x, y, '+' + points, {
         fontSize: '20px',
         fill: '#FFFFFF'
@@ -692,8 +762,8 @@ function showPointsAnimation(scene, x, y, points) {
  */
 function createBall(scene, x, y, size) {
     // 如果没有指定位置，则随机生成
-    const ballX = x || Phaser.Math.Between(50, GAME_CONFIG.width - 50);
-    const ballY = y || Phaser.Math.Between(50, GAME_CONFIG.height - 50);
+    const ballX = x || Phaser.Math.Between(50, canvasWidth - 50);
+    const ballY = y || Phaser.Math.Between(50, canvasHeight - 50);
     
     // 如果没有指定大小，则随机生成
     const ballSize = size || Phaser.Math.Between(BALL.MIN_SIZE, BALL.MAX_SIZE);
@@ -743,18 +813,12 @@ function createBall(scene, x, y, size) {
  * 躲避模式中方块吃球的处理
  */
 function eatBall(player, ball) {
-    // 计算得分（基础分 + 球大小加成）
-    const ballPoints = Math.floor(SCORE.BASE_POINTS + ball.originalSize * SCORE.SIZE_MULTIPLIER);
-    score += ballPoints;
-    scoreText.setText('分数: ' + score);
+    // 躲避模式下不计算吃球分数，分数由坚持时间和球数量决定
     
     // 获取球被吃前的位置和大小
     const ballX = ball.x;
     const ballY = ball.y;
     const ballSize = ball.originalSize * 0.7; // 新球略小一些
-    
-    // 显示得分动画
-    showPointsAnimation(this, ballX, ballY, ballPoints);
     
     // 销毁被吃的球
     ball.destroy();
@@ -772,13 +836,13 @@ function eatBall(player, ball) {
         const newX = Phaser.Math.Clamp(
             ballX + offsetX, 
             newBallSize, 
-            GAME_CONFIG.width - newBallSize
+            canvasWidth - newBallSize
         );
         
         const newY = Phaser.Math.Clamp(
             ballY + offsetY, 
             newBallSize, 
-            GAME_CONFIG.height - newBallSize
+            canvasHeight - newBallSize
         );
         
         createBall(
@@ -823,6 +887,17 @@ function updateTimer() {
     
     timeLeft--;
     timeText.setText('时间: ' + timeLeft);
+    
+    // 躲避模式下，根据当前屏幕上的球数增加分数
+    if (currentGameMode === GAME_MODES.DODGE.id) {
+        const ballCount = balls.getChildren().length;
+        
+        // 每秒增加的分数等于当前球的数量
+        score += ballCount;
+        
+        // 更新分数显示
+        scoreText.setText('分数: ' + score);
+    }
     
     if (timeLeft <= 0) {
         if (currentGameMode === GAME_MODES.DODGE.id) {
@@ -902,31 +977,33 @@ function restartGame() {
     }
     
     // 重置玩家位置
-    player.x = GAME_CONFIG.width / 2;
-    player.y = GAME_CONFIG.height / 2;
+    player.x = canvasWidth / 2;
+    player.y = canvasHeight / 2;
     
     // 显示开始提示文本
     if (currentGameMode === GAME_MODES.DODGE.id) {
         startText = this.scene.scene.add.text(
-            GAME_CONFIG.width / 2, 
-            GAME_CONFIG.height / 2, 
+            WINDOW.WIDTH / 2, 
+            WINDOW.HEIGHT / 2, 
             '按空格键开始躲避模式', 
             { 
                 fontSize: '32px', 
                 fill: '#FFF',
                 fontFamily: 'Arial'
             }
-        ).setOrigin(0.5);
+        ).setOrigin(0.5).setScrollFactor(0);
+        this.scene.scene.uiLayer.add(startText);
     } else if (currentGameMode === GAME_MODES.COMPETE.id) {
         startText = this.scene.scene.add.text(
-            GAME_CONFIG.width / 2, 
-            GAME_CONFIG.height / 2, 
+            WINDOW.WIDTH / 2, 
+            WINDOW.HEIGHT / 2, 
             '按空格键开始竞争模式', 
             { 
                 fontSize: '32px', 
                 fill: '#FFF',
                 fontFamily: 'Arial'
             }
-        ).setOrigin(0.5);
+        ).setOrigin(0.5).setScrollFactor(0);
+        this.scene.scene.uiLayer.add(startText);
     }
 } 
