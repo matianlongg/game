@@ -1,0 +1,11 @@
+{
+  "name": "fangkuaichiqiu",
+  "version": "1.0.0",
+  "description": "方块吞球游戏 - 方块每吞噬一个球，就会出现两个新的球",
+  "main": "index.html",
+  "scripts": {
+    "start": "http-server . -p 8080"
+  },
+  "author": "",
+  "license": "MIT"
+} 
