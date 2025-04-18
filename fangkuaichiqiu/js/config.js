@@ -89,7 +89,7 @@ const GAME_MODES = {
             height: 600
         },
         // 躲避模式下球的生成方式
-        ballSpawnType: BALL.SPAWN_TYPE.NEAR_ORIGINAL
+        ballSpawnType: BALL.SPAWN_TYPE.RANDOM // NEAR_ORIGINAL
     },
     // 竞争模式 - 与敌方方块竞争吃球
     COMPETE: {
