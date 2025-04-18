@@ -24,6 +24,50 @@ const GAME_CONFIG = {
     }
 };
 
+// 球配置
+const BALL = {
+    // 初始球的数量
+    INITIAL_COUNT: 10,
+    // 球的最小尺寸
+    MIN_SIZE: 10,
+    // 球的最大尺寸
+    MAX_SIZE: 30,
+    // 球的最小速度
+    MIN_SPEED: 50,
+    // 球的最大速度
+    MAX_SPEED: 150,
+    // 新球产生时的最小速度
+    NEW_MIN_SPEED: 70,
+    // 新球产生时的最大速度
+    NEW_MAX_SPEED: 200,
+    // 球的颜色（可选多种颜色）
+    COLORS: [
+        0x00FF00,   // 绿色
+        0x0000FF,   // 蓝色
+        0xFFFF00,   // 黄色
+        0x00FFFF,   // 青色
+        0xFF00FF,   // 紫色
+        0xFFA500    // 橙色
+    ],
+    // 球的最大数量，超过此数量游戏结束（躲避模式用）
+    MAX_COUNT: 50,
+    // 竞争模式下，场上保持的最小球数
+    MIN_COMPETE_COUNT: 15,
+    // 球重生间隔（毫秒，竞争模式用）
+    RESPAWN_INTERVAL: 2000,
+    // 新球生成的位置类型
+    SPAWN_TYPE: {
+        // 在原球附近生成新球
+        NEAR_ORIGINAL: 'near_original',
+        // 在随机位置生成新球
+        RANDOM: 'random'
+    },
+    // 默认的生成位置类型
+    DEFAULT_SPAWN_TYPE: 'random',
+    // 原球附近生成时的偏移范围
+    NEAR_OFFSET_RANGE: 80
+};
+
 // 窗口配置
 const WINDOW = {
     // 可视窗口宽度（浏览器中玩家看到的游戏区域宽度）
@@ -43,7 +87,9 @@ const GAME_MODES = {
         canvas: {
             width: 800,
             height: 600
-        }
+        },
+        // 躲避模式下球的生成方式
+        ballSpawnType: BALL.SPAWN_TYPE.NEAR_ORIGINAL
     },
     // 竞争模式 - 与敌方方块竞争吃球
     COMPETE: {
@@ -52,9 +98,11 @@ const GAME_MODES = {
         description: '与敌方方块竞争吃球，变大并吞噬敌方。当你足够大时获胜',
         // 竞争模式的画布大小（更大的区域，使游戏更具挑战性）
         canvas: {
-            width: 10000,
-            height: 10000
-        }
+            width: 1600,
+            height: 1200
+        },
+        // 竞争模式下球的生成方式
+        ballSpawnType: BALL.SPAWN_TYPE.RANDOM
     }
 };
 
@@ -108,38 +156,7 @@ const ENEMY_SQUARES = {
     SIZE_GROWTH_FACTOR: 0.08
 };
 
-// 球配置
-const BALL = {
-    // 初始球的数量
-    INITIAL_COUNT: 10,
-    // 球的最小尺寸
-    MIN_SIZE: 10,
-    // 球的最大尺寸
-    MAX_SIZE: 30,
-    // 球的最小速度
-    MIN_SPEED: 50,
-    // 球的最大速度
-    MAX_SPEED: 150,
-    // 新球产生时的最小速度
-    NEW_MIN_SPEED: 70,
-    // 新球产生时的最大速度
-    NEW_MAX_SPEED: 200,
-    // 球的颜色（可选多种颜色）
-    COLORS: [
-        0x00FF00,   // 绿色
-        0x0000FF,   // 蓝色
-        0xFFFF00,   // 黄色
-        0x00FFFF,   // 青色
-        0xFF00FF,   // 紫色
-        0xFFA500    // 橙色
-    ],
-    // 球的最大数量，超过此数量游戏结束（躲避模式用）
-    MAX_COUNT: 50,
-    // 竞争模式下，场上保持的最小球数
-    MIN_COMPETE_COUNT: 15,
-    // 球重生间隔（毫秒，竞争模式用）
-    RESPAWN_INTERVAL: 2000
-};
+
 
 // 分数配置
 const SCORE = {
