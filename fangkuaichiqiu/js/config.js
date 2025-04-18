@@ -27,7 +27,7 @@ const GAME_CONFIG = {
 // 球配置
 const BALL = {
     // 初始球的数量
-    INITIAL_COUNT: 10,
+    INITIAL_COUNT: 20,
     // 球的最小尺寸
     MIN_SIZE: 10,
     // 球的最大尺寸
@@ -50,7 +50,7 @@ const BALL = {
         0xFFA500    // 橙色
     ],
     // 球的最大数量，超过此数量游戏结束（躲避模式用）
-    MAX_COUNT: 50,
+    MAX_COUNT: 80,
     // 竞争模式下，场上保持的最小球数
     MIN_COMPETE_COUNT: 15,
     // 球重生间隔（毫秒，竞争模式用）
@@ -171,7 +171,7 @@ const SCORE = {
 // 游戏配置
 const GAME = {
     // 游戏持续时间（秒）
-    DURATION: 60,
+    DURATION: 9999,
     // 游戏难度随时间增加的系数
     DIFFICULTY_FACTOR: 0.05
 }; 
